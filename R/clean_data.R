@@ -4,20 +4,21 @@
 library(dplyr)
 library(tidyverse)
 
-# make a function to clean data file
-# test
-# in_file_path <- "cyber/rawdata/cve.1.rds"
-clean_cyber_data <- function(in_file_path) {
-  
-  # load in data
-  in_raw_file <- readRDS(in_file_path)
-  
-  # grab the data frame
-  current_df <- as.data.frame(in_raw_file$vulnerabilities$cve)
-  
-  # unnest the metric columnh
-  current_df <- current_df %>% unnest(cols = metrics, names_sep = '.')
-  
-  # get rid of the metrics columns we don't want
-  
-}
+# load in stacked dataframe
+in_cyber_data <- readRDS("data/cve.with.desc.ref.conf.rds")
+
+# unnest the metric columnh
+current_df <- in_cyber_data %>% unnest(cols = metrics, names_sep = '.')
+
+# get rid of the  columns we don't want
+current_df <- current_df %>% select(id, sourceIdentifier, published, lastModified, vulnStatus, metrics.cvssMetricV31,
+                                    evaluatorSolution, evaluatorImpact, evaluatorComment, vendorComments, weaknesses)
+
+# unnest weaknesses
+current_df <- current_df %>% unnest(cols = weaknesses, names_sep = '.')
+
+# unnest weakness descriptions
+current_df <- current_df %>% unnest(cols = weaknesses.description, names_sep = '.')
+
+# unnest metric
+current_df <- current_df %>% unnest_wider(col = metrics.cvssMetricV31, names_sep = '.')
