@@ -13,27 +13,44 @@ in_cyber_data <- readRDS("data/cve.with.desc.ref.conf.rds")
 #=========================#
 
 # unnest the metric columnh
-current_df <- in_cyber_data %>% unnest(cols = metrics, names_sep = '.')
+cyber_df <- in_cyber_data %>% unnest(cols = metrics, names_sep = '.')
 
 # get rid of the  columns we don't want
-current_df <- current_df %>% select(id, sourceIdentifier, published, lastModified, vulnStatus, metrics.cvssMetricV31,
+cyber_df <- cyber_df %>% select(id, sourceIdentifier, published, lastModified, vulnStatus, metrics.cvssMetricV31,
                                     evaluatorSolution, evaluatorImpact, evaluatorComment, vendorComments, weaknesses)
 
 # unnest weaknesses
-current_df <- current_df %>% unnest(cols = weaknesses, names_sep = '.')
+cyber_df <- cyber_df %>% unnest(cols = weaknesses, names_sep = '.', keep_empty = TRUE)
+
+# pivot weaknesses wider so each vulnerability is a unique row
+cyber_df <- cyber_df %>% select(-weaknesses.source) %>% 
+                         pivot_wider(names_from = weaknesses.type,
+                                     values_from = weaknesses.description)
 
 # unnest weakness descriptions
-current_df <- current_df %>% unnest(cols = weaknesses.description, names_sep = '.')
+cyber_df <- cyber_df %>% unnest(cols = Primary, names_sep = '.', keep_empty = T)
+cyber_df <- cyber_df %>% unnest(cols = Secondary, names_sep = '.', keep_empty = T)
 
 # change col name to make this a little nicer
-current_df <- rename(metrics.cvssMetricV31 = metricv31)
+cyber_df <- rename(cyber_df, metricv31 = metrics.cvssMetricV31)
 
 # unnest metric
-current_df <- current_df %>% unnest_wider(col = metricv31, names_sep = '.')
+cyber_df <- cyber_df %>% unnest_wider(col = metricv31, names_sep = '.')
 
-#==============================#
-#=== create exploits column ===#
-#==============================#
+#============================#
+#=== format exploits data ===#
+#============================#
 
-# question -- are these linked by id column? 
-# if so, we need to do some gsubbing on current_df id column to get it to match exploits data frame
+# get vector of exploited codes
+exploited_codes <- as.character(unlist(strsplit(in_exploit_data$codes, ";")))
+
+#===============================#
+#=== create exploits column  ===#
+#===============================#
+
+cyber_exploits_df <- cyber_df %>% mutate(exploited = (id %in% exploited_codes))
+
+#==============#
+#=== export ===#
+#==============#
+saveRDS(cyber_exploits_df, file = "data/cyber_exploits_df.RDS")
