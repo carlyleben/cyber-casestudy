@@ -1,0 +1,198 @@
+---
+title: "Cyber Case Study Part 2"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-11-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+```
+
+# Main Takeaways
+  - Vulnerabilities are exploited more often as base score or exploitability score.
+  The relationship between impact score and exploitation is less clear.
+  - Exploited vulnerabilities are more likely to have a low attack complexity and
+either low or no privileges required.
+  - Potential predictor variables (to predict whether or not a vulnerability was required) definitely
+  show some multicollinearity. For example, impact score and exploitability score
+  are both positively correlated with base score.
+  - Vulnerabilities published or modified more recently have
+generally been exploited slightly less frequently than older vulnerabilities. Year
+published and year modified are perfectly correlated (correlation = 1), so we wouldn't want
+to include them both in a model.
+
+# Supporting Code
+
+```{r}
+# load data
+cyber_exploits <- readRDS("data/cve.with.exploits.brian.rds")
+```
+
+Let's start by looking at what proportion of vulnerabilities have been exploited in each vulnerability status.
+```{r}
+# calculate proportion of vulnerabilities exploited in each status group
+status_plot_data <- cyber_exploits %>% 
+  group_by(vulnStatus) %>% 
+  summarize(exploit_rate = mean(exploited), size = n())
+
+# create a bar plot
+ggplot(data = status_plot_data, aes(x = exploit_rate, y = vulnStatus)) +
+  geom_bar(stat = "identity", fill = 7:10) +
+  theme_bw() +
+  labs(x = "Proportion of Vulnerabilities Exploited", y = "Vulnerability Status")
+```
+While it looks like the proportion of vulnerabilities is really different by status, it is 
+worth noting that the x-axis scale is pretty narrow.
+
+Now, we'll investigate whether the relationship between when a vulnerability was published or modified
+and whether or not it was exploited.
+
+```{r}
+# format published date
+cyber_exploits <- cyber_exploits %>% 
+  mutate(published = as.Date(gsub("T.*", "", published)), lastModified = as.Date(gsub("T.*", "", lastModified))) %>% 
+  mutate(year_pub = as.numeric(substr(published, 1, 4)), year_mod = as.numeric(substr(published, 1, 4)))
+
+# calculate exploitation rate by year published and year modified
+pub_year_plot <- cyber_exploits %>% 
+  group_by(year_pub) %>% 
+  summarize(exploit_rate = mean(exploited), size = n())
+
+mod_year_plot <- cyber_exploits %>% 
+  group_by(year_mod) %>% 
+  summarize(exploit_rate = mean(exploited), size = n())
+```
+
+
+```{r}
+# create plots of date vs exploitation rate
+ggplot(pub_year_plot, aes(x = year_pub, y = exploit_rate, size = sqrt(size))) + 
+  geom_point() +
+  geom_smooth() +
+  labs(x = "Year Published", y = "Exploitation Rate", size = "Number of Vulnerabilities")
+
+ggplot(mod_year_plot, aes(x = year_mod, y = exploit_rate, size = sqrt(size))) + 
+  geom_point() +
+  geom_smooth() +
+  labs(x = "Year Modified", y = "Exploitation Rate", size = "Number of Vulnerabilities")
+```
+These plots show that the number of vulnerabilities both modified and published over year has generally
+increased over time. However, the vulnerabilities published or modified more recently have
+generally been exploited slightly less frequently than older vulnerabilities. Howver, this 
+trend is not super extreme or drastic.
+
+Next, we'll investigate whether/how base score, explotability score, and impact score
+are related to whether or not a vulnerability was exploited.
+```{r}
+# put data in a long format so we can facet
+long_cyber_df <- cyber_exploits %>% 
+                 pivot_longer(cols = c(baseScore, exploitabilityScore, impactScore),
+                              names_to = 'score_type',
+                              values_to = 'score')
+```
+
+```{r}
+# create plot showing exploitation by each score type
+ggplot(long_cyber_df, aes(x = score, y = exploited, col = score_type)) +
+  geom_jitter() +
+  facet_wrap(~score_type, scales = "free_x") + 
+  labs(x = "Score", y = "Exploited", col = "Score Type")
+```
+It looks like vulnerabilities are exploited more often as base score increases. We
+see a similar trend for exploitability score. THe relationship between impact score
+and whether or not a vulnerabilit was exploited seems slightly less clear; it looks
+like there are certain values of impact scores where vulnerabilities are 
+exploited more often (like at a score of around 6 or 3).
+
+Let's create tables to see if vulnerabilities are more or less likely to be exploited based on attack 
+complexity, whether privileges are required, and whether there is user interaction.
+```{r}
+cyber_exploits %>% 
+  group_by(attackComplexity) %>% 
+  summarise(exploitation_rate = mean(exploited))
+
+cyber_exploits %>% 
+  group_by(privilegesRequired) %>% 
+  summarise(exploitation_rate = mean(exploited))
+
+cyber_exploits %>% 
+  group_by(userInteraction) %>% 
+  summarise(exploitation_rate = mean(exploited))
+```
+Let's translate these tables into plots to make them easier to see.
+```{r}
+# put data in a long format so we can facet
+long_cyber_df <- cyber_exploits %>% 
+                 pivot_longer(cols = c(attackComplexity, privilegesRequired, userInteraction),
+                              names_to = 'feature_type',
+                              values_to = 'feature_value')
+```
+
+```{r}
+# create plot showing exploitation by each score type
+ggplot(long_cyber_df, aes(x = feature_value, y = exploited, col = feature_type)) +
+  geom_jitter() +
+  facet_wrap(~feature_type, scales = "free_x") + 
+  labs(x = "Feature", y = "Exploited", col = "Feature")
+```
+It's clear that exploited vulnerabilities are more likely to have a low attack complexity,
+either low or no privileges required, and no user interaction. This echos what we saw in the tables 
+above.
+
+Finally, let's investigate how potential predictor variables are related
+to one another and do some initial modeling. A lot of variables are factors, 
+so I will make calculate some plots in lieu of finding correlations for some variables.
+
+```{r}
+ggplot(cyber_exploits, aes(x = attackComplexity, y = userInteraction)) +
+  geom_jitter()
+
+ggplot(cyber_exploits, aes(x = attackComplexity, y = privilegesRequired)) +
+  geom_jitter()
+```
+
+Definitely looks like there is some sort of relationship between attack complexity,
+user interaction, and privileges required. It's not exactly what I would expect--
+for example, I would think an attack would be more likely to be complex if privileges 
+were required.
+
+```{r}
+variables_for_correlation <- cyber_exploits %>% select(baseScore, impactScore, exploitabilityScore, year_pub, year_mod)
+cor(variables_for_correlation)
+```
+Both impact score and exploitability score have a notable positive correlation with
+base score. I wonder if the different score types are linear combinations of each other (or 
+otherwise are calculated based on other score types).
+
+Year published and year modified are perfectly correlated.
+
+Now, we'll do some initial modeling. Eventually, we will likely want to run
+a logistic regression model, since our response is a binary variable.
+```{r}
+m1 <- glm(exploited ~ published + lastModified, data = cyber_exploits)
+summary(m1)
+
+m2 <- glm(exploited ~ published, data = cyber_exploits)
+summary(m2)
+
+m3 <- glm(exploited ~ lastModified, data = cyber_exploits)
+summary(m3)
+
+m4 <- glm(exploited ~ published + lastModified + vulnStatus, data = cyber_exploits)
+summary(m4)
+
+m5 <- glm(exploited ~ vulnStatus, data = cyber_exploits)
+summary(m5)
+```
+
+
+# Ideas for Further Analyses
+
+ - Analysis of the Vendor organization. Some of the groups have a vendor organization, the most common one is RedHat which is an open source software company that I think does a lot of cybersecurity stuff but not positive.
+ - We could do some kind of analysis on the email addresses of the source identifier. By the domain name you can see who the source of the vulnerability is, and doing some kind of categorization of these could be interesting but there are so many which might make it hard.
